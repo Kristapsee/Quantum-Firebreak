@@ -6,6 +6,10 @@
 
 A fully playable turn-based strategy game built with Python 3 and Pygame.
 
+## AI Usage
+
+AI was used to implement parts of code, fix bugs. First version was not playable so GitHub Copilot with Claude Opus 4.6 was used to make it playable.
+
 ### Core gameplay
 
 - **10×10 grid** representing a wildfire region (forest, burning, burned, firebreak tiles)
