@@ -96,6 +96,16 @@ DEFAULT_FACTS = [
     "If smoke appears, get out, stay out, and call emergency services.",
     "Create defensible space by clearing dry vegetation near structures.",
 ]
+WIN_FACTS = [
+    "Real firebreaks remove or separate burnable vegetation, helping slow a fire and giving crews a safer line from which to respond.",
+    "Reducing dry leaves, branches, and other fuels near a protected area can lower flame intensity and support containment work.",
+    "A fire line is strongest when responders also watch for embers that may land beyond the break and start spot fires.",
+]
+LOSS_FACTS = [
+    "Wind-driven embers can travel ahead of a wildfire and start spot fires beyond roads, streams, or constructed firebreaks.",
+    "When fire behavior changes quickly, early warnings and prompt evacuation protect lives even when vegetation cannot be saved.",
+    "Dense dry fuel and strong wind can allow wildfire growth to outpace containment, which is why prevention and early detection matter.",
+]
 
 
 def load_fire_safety_facts():
@@ -133,6 +143,7 @@ class Game:
         self.game_over = False
         self.win = False
         self.message = ""
+        self.outcome_fact = ""
         self.scan_preview = None
         self.current_fact = random.choice(self.fire_safety_facts)
         self.particles = []
@@ -440,6 +451,13 @@ class Game:
 
     # --- End-of-turn mechanics -----------------------------------------------
 
+    def _finish_game(self, win, message):
+        self.game_over = True
+        self.win = win
+        self.message = message
+        fact_pool = WIN_FACTS if win else LOSS_FACTS
+        self.outcome_fact = random.choice(fact_pool)
+
     def end_turn(self):
         """Advance one turn and run quantum spread mechanics."""
         if self.game_over:
@@ -522,19 +540,14 @@ class Game:
         self._check_lose()
 
         if self.turn > MAX_TURNS and not self.game_over:
-            self.game_over = True
             if self.burned_count <= BURN_THRESHOLD:
-                self.win = True
-                self.message = "You saved the community! Wildfire contained."
+                self._finish_game(True, "You saved the community! Wildfire contained.")
             else:
-                self.win = False
-                self.message = "Too many tiles burned. The region is devastated."
+                self._finish_game(False, "Too many tiles burned. The region is devastated.")
 
     def _check_lose(self):
         if self.burned_count > BURN_THRESHOLD and not self.game_over:
-            self.game_over = True
-            self.win = False
-            self.message = "Fire overwhelmed the region! You lose."
+            self._finish_game(False, "Fire overwhelmed the region! You lose.")
 
 
 # --- Drawing helpers ----------------------------------------------------------
@@ -1238,41 +1251,84 @@ def draw_main_menu(surface, game, font_title, font, font_sm, font_fact, ticks):
         surface.blit(rendered, (preview_text_x, preview_y + idx * 21))
 
 
-def draw_game_over_overlay(surface, game, font, font_sm, font_fact):
+def draw_game_over_overlay(surface, game, font_title, font, font_sm, font_fact):
     shade = pygame.Surface((GRID_PX, SCREEN_H), pygame.SRCALPHA)
-    shade.fill((8, 18, 20, 118))
+    shade.fill((8, 18, 20, 186))
     surface.blit(shade, (0, 0))
 
-    card = pygame.Rect(190, 226, GRID_PX - 380, 268)
+    card = pygame.Rect(86, 116, GRID_PX - 172, 586)
     pygame.draw.rect(surface, COL_MODAL_CARD, card, border_radius=10)
     pygame.draw.rect(surface, (*COL_GLOW, 130), card, 2, border_radius=10)
 
     result_col = COL_WIN if game.win else COL_LOSE
-    result_txt = "VICTORY" if game.win else "DEFEAT"
-    title = font.render(result_txt, True, result_col)
-    surface.blit(title, (card.centerx - title.get_width() // 2, card.y + 22))
+    result_txt = "WILDFIRE CONTAINED" if game.win else "CONTAINMENT FAILED"
+    title = font_title.render(result_txt, True, result_col)
+    surface.blit(title, (card.centerx - title.get_width() // 2, card.y + 26))
 
-    outcome = "Wildfire contained." if game.win else "Fire overwhelmed the region."
+    outcome = (
+        "Your response held the burned area within the safety limit."
+        if game.win
+        else "The burned area exceeded the containment limit."
+    )
     outcome_txt = font_fact.render(outcome, True, COL_TEXT)
-    surface.blit(outcome_txt, (card.centerx - outcome_txt.get_width() // 2, card.y + 58))
+    surface.blit(outcome_txt, (card.centerx - outcome_txt.get_width() // 2, card.y + 76))
 
     stats = [
-        ("Turns reached", f"{min(game.turn - 1, MAX_TURNS)} / {MAX_TURNS}"),
-        ("Burned / limit", f"{game.burned_count} / {BURN_THRESHOLD}"),
-        ("Firebreaks built", str(game.stats["firebreaks"])),
-        ("Scans used", str(game.stats["scans"])),
-        ("Crews deployed", str(game.stats["crews"])),
+        ("Turns", f"{min(game.turn - 1, MAX_TURNS)} / {MAX_TURNS}"),
+        ("Burned / Limit", f"{game.burned_count} / {BURN_THRESHOLD}"),
+        ("Firebreaks", str(game.stats["firebreaks"])),
+        ("Scans", str(game.stats["scans"])),
+        ("Crews", str(game.stats["crews"])),
     ]
-    y = card.y + 100
-    for label, value in stats:
-        left = font_sm.render(label, True, COL_MUTED)
-        right = font_sm.render(value, True, COL_HIGHLIGHT)
-        surface.blit(left, (card.x + 42, y))
-        surface.blit(right, (card.right - 42 - right.get_width(), y))
-        y += 26
+    stat_y = card.y + 122
+    stat_w = 112
+    stat_gap = 10
+    total_w = len(stats) * stat_w + (len(stats) - 1) * stat_gap
+    stat_x = card.centerx - total_w // 2
+    for idx, (label, value) in enumerate(stats):
+        stat_rect = pygame.Rect(stat_x + idx * (stat_w + stat_gap), stat_y, stat_w, 78)
+        pygame.draw.rect(surface, COL_CARD, stat_rect, border_radius=7)
+        pygame.draw.rect(surface, (*COL_GLOW, 75), stat_rect, 1, border_radius=7)
+        value_txt = font.render(value, True, COL_HIGHLIGHT)
+        label_txt = font_sm.render(label, True, COL_MUTED)
+        surface.blit(value_txt, (stat_rect.centerx - value_txt.get_width() // 2, stat_rect.y + 15))
+        surface.blit(label_txt, (stat_rect.centerx - label_txt.get_width() // 2, stat_rect.y + 48))
 
-    restart = font_sm.render("Press R to restart", True, COL_FACT_TITLE)
-    surface.blit(restart, (card.centerx - restart.get_width() // 2, card.bottom - 34))
+    lesson_rect = pygame.Rect(card.x + 34, card.y + 228, card.width - 68, 172)
+    pygame.draw.rect(surface, COL_CARD, lesson_rect, border_radius=8)
+    pygame.draw.rect(surface, (*result_col, 125), lesson_rect, 2, border_radius=8)
+    lesson_heading = "Why containment worked" if game.win else "Real-world wildfire lesson"
+    lesson_title = font.render(lesson_heading, True, COL_FACT_TITLE)
+    surface.blit(lesson_title, (lesson_rect.x + 20, lesson_rect.y + 17))
+    lesson = game.outcome_fact or random.choice(WIN_FACTS if game.win else LOSS_FACTS)
+    lesson_y = lesson_rect.y + 57
+    for line in wrap_text_lines(font_fact, lesson, lesson_rect.width - 40):
+        rendered = font_fact.render(line, True, COL_FACT_TEXT)
+        surface.blit(rendered, (lesson_rect.x + 20, lesson_y))
+        lesson_y += rendered.get_height() + 7
+
+    prompt = "Try another response plan or return to the menu."
+    prompt_txt = font_sm.render(prompt, True, COL_MUTED)
+    surface.blit(prompt_txt, (card.centerx - prompt_txt.get_width() // 2, card.y + 430))
+
+    restart_rect = pygame.Rect(card.centerx - 212, card.bottom - 82, 196, 48)
+    menu_rect = pygame.Rect(card.centerx + 16, card.bottom - 82, 196, 48)
+    game.ui_buttons["restart_game"] = restart_rect
+    game.ui_buttons["main_menu"] = menu_rect
+    for rect, label, emphasized in (
+        (restart_rect, "Play Again", True),
+        (menu_rect, "Main Menu", False),
+    ):
+        pygame.draw.rect(surface, COL_BTN_ACTIVE if emphasized else COL_BTN, rect, border_radius=6)
+        pygame.draw.rect(surface, COL_HIGHLIGHT if emphasized else (*COL_GLOW, 110), rect, 2, border_radius=6)
+        label_txt = font.render(label, True, COL_HIGHLIGHT)
+        surface.blit(
+            label_txt,
+            (
+                rect.centerx - label_txt.get_width() // 2,
+                rect.centery - label_txt.get_height() // 2,
+            ),
+        )
 
 
 def main():
@@ -1371,6 +1427,8 @@ def main():
                         if name == "info":
                             game.show_info = True
                             game.show_social_good = False
+                        elif name == "restart_game":
+                            game.reset()
                         elif name == "main_menu":
                             app_screen = SCREEN_MENU
                             game.show_info = False
@@ -1407,7 +1465,7 @@ def main():
             draw_grid(screen, game, font_sm, ticks)
             draw_panel(screen, game, font, font_sm, font_fact, ticks)
             if game.game_over:
-                draw_game_over_overlay(screen, game, font_sm=font_sm, font=font, font_fact=font_fact)
+                draw_game_over_overlay(screen, game, font_title, font, font_sm, font_fact)
         if game.show_info:
             draw_info_overlay(screen, game, font, font_sm, font_fact)
         if game.show_social_good:
