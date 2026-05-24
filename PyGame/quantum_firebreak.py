@@ -53,6 +53,10 @@ MODE_FIREBREAK = "firebreak"
 MODE_SCAN = "scan"
 MODE_CREW = "crew"
 
+# App screens
+SCREEN_MENU = "menu"
+SCREEN_GAME = "game"
+
 # Colors (RGB)
 COL_FOREST = (71, 148, 92)
 COL_BURNING = (227, 96, 50)
@@ -136,6 +140,7 @@ class Game:
         self.scan_waves = []
         self.collapse_flashes = []
         self.show_info = False
+        self.show_social_good = False
         self.ui_buttons = {}
         self.wind_dir = random.choice([(-1, 0), (1, 0), (0, -1), (0, 1)])
         self.stats = {"firebreaks": 0, "scans": 0, "crews": 0}
@@ -763,22 +768,6 @@ def draw_grid(surface, game, font_sm, ticks):
             draw_tile_detail(surface, game.grid[r][c], rect, r, c, ticks)
             pygame.draw.rect(surface, COL_GRID_LINE, rect, 1, border_radius=12)
 
-            # Entangled forest tiles get a small linked-state marker.
-            if game.grid[r][c] == FOREST and (r, c) in game.entangled_partner:
-                marker_alpha = int(150 + 80 * entangle_pulse)
-                marker = pygame.Surface((24, 24), pygame.SRCALPHA)
-                pygame.draw.rect(marker, (*COL_ENTANGLE, 50), marker.get_rect(), border_radius=6)
-                pygame.draw.rect(marker, (*COL_ENTANGLE, marker_alpha), marker.get_rect(), 2, border_radius=6)
-                label = font_sm.render("E", True, COL_ENTANGLE)
-                marker.blit(
-                    label,
-                    (
-                        marker.get_width() // 2 - label.get_width() // 2,
-                        marker.get_height() // 2 - label.get_height() // 2,
-                    ),
-                )
-                surface.blit(marker, (x + TILE_PX - 31, y + 9))
-
             # Visualize uncertain superposition using fire probability overlay.
             if game.grid[r][c] == FOREST and game.fire_amp[r][c] > 0.0:
                 p_fire = game.fire_probability(r, c)
@@ -802,6 +791,22 @@ def draw_grid(surface, game, font_sm, ticks):
                         y + TILE_PX // 2 - txt.get_height() // 2,
                     ),
                 )
+
+            # Entangled forest tiles get a high-contrast linked-state marker.
+            if game.grid[r][c] == FOREST and (r, c) in game.entangled_partner:
+                marker_alpha = int(190 + 55 * entangle_pulse)
+                marker = pygame.Surface((31, 29), pygame.SRCALPHA)
+                marker_rect = marker.get_rect()
+                pygame.draw.rect(marker, (43, 27, 67, 238), marker_rect, border_radius=7)
+                pygame.draw.rect(marker, (*COL_ENTANGLE, marker_alpha), marker_rect, 3, border_radius=7)
+                pygame.draw.rect(marker, (247, 239, 255, 70), marker_rect.inflate(-7, -7), 1, border_radius=4)
+                shadow = font_sm.render("E", True, (11, 8, 16))
+                label = font_sm.render("E", True, (250, 242, 255))
+                label_x = marker.get_width() // 2 - label.get_width() // 2
+                label_y = marker.get_height() // 2 - label.get_height() // 2 - 1
+                marker.blit(shadow, (label_x + 1, label_y + 1))
+                marker.blit(label, (label_x, label_y))
+                surface.blit(marker, (x + TILE_PX - 38, y + 8))
 
             if game.grid[r][c] == BURNING:
                 draw_flame(surface, rect, r, c, ticks)
@@ -940,7 +945,21 @@ def draw_panel(surface, game, font, font_sm, font_fact, ticks):
     text("E / Space: End Turn", COL_MUTED, font_sm)
     text("R: Restart (new random fact)", COL_MUTED, font_sm)
     text("H / ?: Info", COL_MUTED, font_sm)
-    y += 8
+    y += 6
+
+    menu_rect = pygame.Rect(x, y, PANEL_W - 32, 38)
+    game.ui_buttons["main_menu"] = menu_rect
+    pygame.draw.rect(surface, COL_BTN, menu_rect, border_radius=6)
+    pygame.draw.rect(surface, (*COL_GLOW, 105), menu_rect, 1, border_radius=6)
+    menu_txt = font_sm.render("Main Menu", True, COL_HIGHLIGHT)
+    surface.blit(
+        menu_txt,
+        (
+            menu_rect.centerx - menu_txt.get_width() // 2,
+            menu_rect.centery - menu_txt.get_height() // 2,
+        ),
+    )
+    y = menu_rect.bottom + 12
 
     if game.message:
         for ln in wrap_text_lines(font_sm, game.message, PANEL_W - 40):
@@ -1048,6 +1067,177 @@ def draw_info_overlay(surface, game, font, font_sm, font_fact):
     surface.blit(close, (x, card.bottom - close.get_height() - 18))
 
 
+def draw_social_good_overlay(surface, font, font_sm, font_fact):
+    shade = pygame.Surface((SCREEN_W, SCREEN_H), pygame.SRCALPHA)
+    shade.fill(COL_MODAL)
+    surface.blit(shade, (0, 0))
+
+    card = pygame.Rect(170, 82, SCREEN_W - 340, SCREEN_H - 164)
+    pygame.draw.rect(surface, COL_MODAL_CARD, card, border_radius=10)
+    pygame.draw.rect(surface, (*COL_GLOW, 120), card, 2, border_radius=10)
+
+    x = card.x + 28
+    y = card.y + 24
+    max_w = card.width - 56
+
+    title = font.render("UNESCO Social Good Connection", True, COL_HIGHLIGHT)
+    surface.blit(title, (x, y))
+    y += title.get_height() + 18
+
+    sections = [
+        (
+            "Education for climate resilience",
+            [
+                "The game turns wildfire risk into an active learning system: players test prevention, detection, and response choices instead of only reading about them.",
+                "It supports environmental awareness by showing how wind, dry fuel, delayed action, and containment planning can change outcomes.",
+            ],
+        ),
+        (
+            "Risk literacy and decision-making",
+            [
+                "Players compare tradeoffs under limited action points, which mirrors real disaster-risk decisions where time and resources are constrained.",
+                "The scan mechanic teaches uncertainty: hidden risk is not the same as no risk, and better information can improve response planning.",
+            ],
+        ),
+        (
+            "Community benefit",
+            [
+                "Short safety facts reinforce practical preparedness messages while the simulation keeps learners engaged.",
+                "The project can be used in classrooms or public-awareness demos to discuss forests, fire safety, climate adaptation, and responsible technology.",
+            ],
+        ),
+    ]
+
+    for heading, lines in sections:
+        h = font_sm.render(heading, True, COL_FACT_TITLE)
+        surface.blit(h, (x, y))
+        y += h.get_height() + 6
+        for line in lines:
+            for idx, ln in enumerate(wrap_text_lines(font_fact, line, max_w - 16)):
+                prefix = "- " if idx == 0 else "  "
+                rendered = font_fact.render(prefix + ln, True, COL_TEXT)
+                surface.blit(rendered, (x + 8, y))
+                y += rendered.get_height() + 3
+        y += 11
+
+    close = font_sm.render("Click outside this panel or press Esc to close.", True, COL_MUTED)
+    surface.blit(close, (x, card.bottom - close.get_height() - 18))
+
+
+def draw_main_menu(surface, game, font_title, font, font_sm, font_fact, ticks):
+    draw_animated_backdrop(surface, ticks)
+    game.ui_buttons.clear()
+
+    left = 76
+    top = 66
+    max_w = 560
+
+    title_shadow = font_title.render("QUANTUM FIREBREAK", True, (6, 18, 22))
+    title = font_title.render("QUANTUM FIREBREAK", True, COL_HIGHLIGHT)
+    surface.blit(title_shadow, (left + 2, top + 3))
+    surface.blit(title, (left, top))
+
+    subtitle = font.render("A turn-based wildfire containment strategy game", True, COL_FACT_TITLE)
+    surface.blit(subtitle, (left + 2, top + 62))
+
+    y = top + 112
+    intro_lines = [
+        "Forest fires can move fast when wind, dry fuel, and heat line up. In this game, each turn is a short emergency response window: build firebreaks, scan uncertain areas, and send crews before small ignitions become a regional disaster.",
+        "The quantum-inspired fire model turns hidden risk into strategy. Unmeasured forest tiles can hold a fire probability, scans collapse that uncertainty into safe forest or active flame, and firebreaks reduce nearby fire amplitude.",
+        f"Goal: survive {MAX_TURNS} turns while keeping burned and burning tiles at {BURN_THRESHOLD} or fewer.",
+    ]
+    for paragraph in intro_lines:
+        for line in wrap_text_lines(font_fact, paragraph, max_w):
+            rendered = font_fact.render(line, True, COL_TEXT)
+            surface.blit(rendered, (left, y))
+            y += rendered.get_height() + 4
+        y += 14
+
+    fact_rect = pygame.Rect(left - 10, y + 2, max_w + 20, 132)
+    pygame.draw.rect(surface, COL_CARD, fact_rect, border_radius=8)
+    pygame.draw.rect(surface, (*COL_GLOW, 95), fact_rect, 1, border_radius=8)
+    fact_title = font.render("Forest Fire Reality", True, COL_FACT_TITLE)
+    surface.blit(fact_title, (fact_rect.x + 16, fact_rect.y + 12))
+    fact_text = (
+        "Firebreaks work by removing or separating fuel, while early detection gives crews time "
+        "to contain flame fronts before wind-driven embers spread into new forest."
+    )
+    fy = fact_rect.y + 46
+    line_h = font_fact.get_height() + 4
+    max_fact_lines = max(1, (fact_rect.bottom - fy - 14) // line_h)
+    for line in wrap_text_lines(font_fact, fact_text, fact_rect.width - 44)[:max_fact_lines]:
+        rendered = font_fact.render(line, True, COL_FACT_TEXT)
+        surface.blit(rendered, (fact_rect.x + 22, fy))
+        fy += line_h
+
+    button_y = SCREEN_H - 170
+    start_rect = pygame.Rect(left, button_y, 210, 54)
+    info_rect = pygame.Rect(left + 232, button_y, 160, 54)
+    social_rect = pygame.Rect(left, button_y + 66, 306, 46)
+    quit_rect = pygame.Rect(left + 328, button_y + 66, 120, 46)
+    game.ui_buttons["start_game"] = start_rect
+    game.ui_buttons["menu_info"] = info_rect
+    game.ui_buttons["social_good"] = social_rect
+    game.ui_buttons["quit_game"] = quit_rect
+
+    for rect, label, active in (
+        (start_rect, "Start Game", True),
+        (info_rect, "How to Play", False),
+        (social_rect, "UNESCO Social Good", False),
+        (quit_rect, "Quit", False),
+    ):
+        col = COL_BTN_ACTIVE if active else COL_BTN
+        pygame.draw.rect(surface, col, rect, border_radius=6)
+        pygame.draw.rect(surface, COL_HIGHLIGHT if active else (*COL_GLOW, 110), rect, 2, border_radius=6)
+        label_txt = font.render(label, True, COL_HIGHLIGHT)
+        surface.blit(
+            label_txt,
+            (
+                rect.centerx - label_txt.get_width() // 2,
+                rect.centery - label_txt.get_height() // 2,
+            ),
+        )
+
+    hint = font_sm.render("Enter: start   H / ?: info   Esc: quit", True, COL_MUTED)
+    surface.blit(hint, (left, button_y + 126))
+
+    preview = pygame.Rect(SCREEN_W - 412, 88, 316, 560)
+    pygame.draw.rect(surface, (16, 49, 56), preview, border_radius=16)
+    pygame.draw.rect(surface, (*COL_GLOW, 90), preview, 2, border_radius=16)
+    cell = 54
+    grid_x = preview.x + 23
+    grid_y = preview.y + 24
+    sample_states = [
+        [FOREST, FOREST, BURNING, FOREST, FOREST],
+        [FOREST, FIREBREAK, FOREST, BURNING, FOREST],
+        [FOREST, FIREBREAK, FOREST, FOREST, FOREST],
+        [FOREST, FOREST, FOREST, FIREBREAK, BURNING],
+        [BURNED, FOREST, FOREST, FOREST, FOREST],
+    ]
+    for r, row in enumerate(sample_states):
+        for c, state in enumerate(row):
+            rect = pygame.Rect(grid_x + c * cell, grid_y + r * cell, cell - 8, cell - 8)
+            pygame.draw.rect(surface, tile_colour(state), rect, border_radius=8)
+            pygame.draw.rect(surface, COL_GRID_LINE, rect, 1, border_radius=8)
+            draw_tile_detail(surface, state, rect, r, c, ticks)
+            if state == BURNING:
+                draw_flame(surface, rect, r, c, ticks)
+    draw_wind_compass(surface, pygame.Rect(preview.x + 34, preview.y + 330, 66, 82), game.wind_dir, font_sm)
+    wind = font.render(f"Wind: {wind_label(game.wind_dir)}", True, COL_FACT_TITLE)
+    surface.blit(wind, (preview.x + 116, preview.y + 342))
+    preview_text_x = preview.x + 34
+    preview_text_w = preview.width - 68
+    preview_y = preview.y + 432
+    for line in wrap_text_lines(font_fact, "Watch wind, fuel, and hidden fire probability.", preview_text_w):
+        rendered = font_fact.render(line, True, COL_TEXT)
+        surface.blit(rendered, (preview_text_x, preview_y))
+        preview_y += rendered.get_height() + 4
+    preview_y += 8
+    for idx, line in enumerate(wrap_text_lines(font_sm, "Build barriers ahead of the fire, scan risky clusters, and use crews where spread potential is highest.", preview_text_w)):
+        rendered = font_sm.render(line, True, COL_MUTED)
+        surface.blit(rendered, (preview_text_x, preview_y + idx * 21))
+
+
 def draw_game_over_overlay(surface, game, font, font_sm, font_fact):
     shade = pygame.Surface((GRID_PX, SCREEN_H), pygame.SRCALPHA)
     shade.fill((8, 18, 20, 118))
@@ -1094,10 +1284,12 @@ def main():
     clock = pygame.time.Clock()
 
     font = pygame.font.SysFont("georgia", 20, bold=True)
+    font_title = pygame.font.SysFont("georgia", 38, bold=True)
     font_sm = pygame.font.SysFont("trebuchetms", 15)
     font_fact = pygame.font.SysFont("trebuchetms", 18)
 
     game = Game()
+    app_screen = SCREEN_MENU
 
     running = True
     while running:
@@ -1106,6 +1298,20 @@ def main():
                 running = False
 
             elif event.type == pygame.KEYDOWN:
+                if app_screen == SCREEN_MENU:
+                    if (game.show_info or game.show_social_good) and event.key == pygame.K_ESCAPE:
+                        game.show_info = False
+                        game.show_social_good = False
+                    elif event.key in (pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_SPACE):
+                        game.reset()
+                        app_screen = SCREEN_GAME
+                    elif event.key in (pygame.K_h, pygame.K_i) or event.unicode == "?":
+                        game.show_info = not game.show_info
+                        game.show_social_good = False
+                    elif event.key == pygame.K_ESCAPE:
+                        running = False
+                    continue
+
                 if event.key == pygame.K_1:
                     game.mode = MODE_FIREBREAK
                 elif event.key == pygame.K_2:
@@ -1114,21 +1320,49 @@ def main():
                     game.mode = MODE_CREW
                 elif event.key in (pygame.K_h, pygame.K_i) or event.unicode == "?":
                     game.show_info = not game.show_info
+                    game.show_social_good = False
                 elif event.key == pygame.K_ESCAPE and game.show_info:
                     game.show_info = False
+                elif event.key == pygame.K_ESCAPE and game.show_social_good:
+                    game.show_social_good = False
                 elif event.key in (pygame.K_e, pygame.K_SPACE):
                     if not game.game_over:
                         game.end_turn()
                 elif event.key == pygame.K_r:
                     game.reset()
+                elif event.key == pygame.K_ESCAPE:
+                    app_screen = SCREEN_MENU
+                    game.show_info = False
+                    game.show_social_good = False
 
             elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 mx, my = event.pos
-                if game.show_info:
+                if game.show_info or game.show_social_good:
                     info_card = pygame.Rect(170, 82, SCREEN_W - 340, SCREEN_H - 164)
                     if not info_card.collidepoint(mx, my):
                         game.show_info = False
+                        game.show_social_good = False
                     continue
+
+                if app_screen == SCREEN_MENU:
+                    clicked_menu_button = False
+                    for name, rect in game.ui_buttons.items():
+                        if rect.collidepoint(mx, my):
+                            clicked_menu_button = True
+                            if name == "start_game":
+                                game.reset()
+                                app_screen = SCREEN_GAME
+                            elif name == "menu_info":
+                                game.show_info = True
+                                game.show_social_good = False
+                            elif name == "social_good":
+                                game.show_social_good = True
+                                game.show_info = False
+                            elif name == "quit_game":
+                                running = False
+                            break
+                    if clicked_menu_button:
+                        continue
 
                 clicked_button = False
                 for name, rect in game.ui_buttons.items():
@@ -1136,6 +1370,11 @@ def main():
                         clicked_button = True
                         if name == "info":
                             game.show_info = True
+                            game.show_social_good = False
+                        elif name == "main_menu":
+                            app_screen = SCREEN_MENU
+                            game.show_info = False
+                            game.show_social_good = False
                         elif name in (MODE_FIREBREAK, MODE_SCAN, MODE_CREW):
                             game.mode = name
                         break
@@ -1153,7 +1392,7 @@ def main():
                         game.deploy_crew(r, c)
 
         mx, my = pygame.mouse.get_pos()
-        if mx < GRID_PX and my < GRID_PX:
+        if app_screen == SCREEN_GAME and mx < GRID_PX and my < GRID_PX:
             game.scan_preview = (my // TILE_PX, mx // TILE_PX)
         else:
             game.scan_preview = None
@@ -1161,13 +1400,18 @@ def main():
         ticks = pygame.time.get_ticks()
         dt = 1.0 / FPS
         game.update_particles(dt)
-        draw_animated_backdrop(screen, ticks)
-        draw_grid(screen, game, font_sm, ticks)
-        draw_panel(screen, game, font, font_sm, font_fact, ticks)
-        if game.game_over:
-            draw_game_over_overlay(screen, game, font, font_sm, font_fact)
+        if app_screen == SCREEN_MENU:
+            draw_main_menu(screen, game, font_title, font, font_sm, font_fact, ticks)
+        else:
+            draw_animated_backdrop(screen, ticks)
+            draw_grid(screen, game, font_sm, ticks)
+            draw_panel(screen, game, font, font_sm, font_fact, ticks)
+            if game.game_over:
+                draw_game_over_overlay(screen, game, font_sm=font_sm, font=font, font_fact=font_fact)
         if game.show_info:
             draw_info_overlay(screen, game, font, font_sm, font_fact)
+        if game.show_social_good:
+            draw_social_good_overlay(screen, font, font_sm, font_fact)
         pygame.display.flip()
         clock.tick(FPS)
 
