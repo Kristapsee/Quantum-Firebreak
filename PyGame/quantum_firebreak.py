@@ -1,8 +1,8 @@
 # -----------------------------------------------------------------------------
 # Quantum Firebreak - a turn-based strategy game with quantum-inspired mechanics
 #
-# The player tries to contain a wildfire on a 10x10 grid over 20 turns.
-# Each turn the player gets 2 Action Points (AP) to spend on three actions:
+# The player tries to contain a wildfire on a 10x10 grid over configurable turns.
+# Each turn the player gets configurable Action Points (AP) to spend on three actions:
 #   - Build a firebreak (barrier) on a forest tile
 #   - Scan a 3x3 area to perform quantum measurement and collapse superposition
 #   - Deploy a crew to extinguish a burning tile
@@ -41,6 +41,41 @@ BURN_THRESHOLD = 18
 INITIAL_FIRES = 4
 AUTO_IGNITE_PROBABILITY = 0.88
 BURNOUT_CHANCE = 0.21
+
+DIFFICULTY_SETTINGS = [
+    ("initial_fires", "Starting fires", 1, 12, 1),
+    ("max_turns", "Turns to survive", 5, 40, 1),
+    ("ap_per_turn", "Action points / turn", 1, 6, 1),
+    ("entangled_pairs", "Entangled pairs", 0, 12, 1),
+    ("burn_threshold", "Burn limit", 5, 40, 1),
+    ("auto_ignite_percent", "Auto-ignite threshold", 65, 98, 1),
+]
+DIFFICULTY_PRESETS = {
+    "Easy": {
+        "initial_fires": 2,
+        "max_turns": 15,
+        "ap_per_turn": 4,
+        "entangled_pairs": 1,
+        "burn_threshold": 25,
+        "auto_ignite_percent": 94,
+    },
+    "Standard": {
+        "initial_fires": INITIAL_FIRES,
+        "max_turns": MAX_TURNS,
+        "ap_per_turn": AP_PER_TURN,
+        "entangled_pairs": 3,
+        "burn_threshold": BURN_THRESHOLD,
+        "auto_ignite_percent": int(AUTO_IGNITE_PROBABILITY * 100),
+    },
+    "Hard": {
+        "initial_fires": 6,
+        "max_turns": 25,
+        "ap_per_turn": 2,
+        "entangled_pairs": 6,
+        "burn_threshold": 14,
+        "auto_ignite_percent": 80,
+    },
+}
 
 # Tile states
 FOREST = 0
@@ -125,7 +160,23 @@ class Game:
 
     def __init__(self):
         self.fire_safety_facts = load_fire_safety_facts()
+        self.settings = DIFFICULTY_PRESETS["Standard"].copy()
+        self.difficulty_name = "Standard"
         self.reset()
+
+    def apply_difficulty_preset(self, name):
+        """Apply a named difficulty configuration for the next new game."""
+        self.settings.update(DIFFICULTY_PRESETS[name])
+        self.difficulty_name = name
+
+    def adjust_setting(self, key, amount):
+        """Adjust one configurable rule while keeping its allowed range."""
+        for setting_key, _label, minimum, maximum, step in DIFFICULTY_SETTINGS:
+            if setting_key == key:
+                value = self.settings[key] + amount * step
+                self.settings[key] = max(minimum, min(maximum, value))
+                self.difficulty_name = "Custom"
+                return
 
     def reset(self):
         """Initialize (or re-initialize) game state for a new game."""
@@ -137,7 +188,7 @@ class Game:
         self.fire_amp = [[0.0 for _ in range(GRID_SIZE)] for _ in range(GRID_SIZE)]
 
         self.turn = 1
-        self.ap = AP_PER_TURN
+        self.ap = self.settings["ap_per_turn"]
         self.mode = MODE_FIREBREAK
         self.burned_count = 0
         self.game_over = False
@@ -152,6 +203,7 @@ class Game:
         self.collapse_flashes = []
         self.show_info = False
         self.show_social_good = False
+        self.show_settings = False
         self.ui_buttons = {}
         self.wind_dir = random.choice([(-1, 0), (1, 0), (0, -1), (0, 1)])
         self.stats = {"firebreaks": 0, "scans": 0, "crews": 0}
@@ -162,14 +214,14 @@ class Game:
 
         starts = random.sample(
             [(r, c) for r in range(GRID_SIZE) for c in range(GRID_SIZE)],
-            k=INITIAL_FIRES,
+            k=self.settings["initial_fires"],
         )
         for r, c in starts:
             self.grid[r][c] = BURNING
             self.safe_amp[r][c] = 0.0
             self.fire_amp[r][c] = 1.0
 
-        self._create_entangled_pairs(pair_count=3)
+        self._create_entangled_pairs(pair_count=self.settings["entangled_pairs"])
         self._count_burned()
 
     # --- Internal helpers -----------------------------------------------------
@@ -516,7 +568,7 @@ class Game:
         for r in range(GRID_SIZE):
             for c in range(GRID_SIZE):
                 if self.grid[r][c] == FOREST and self.fire_amp[r][c] > 0.0:
-                    if self.fire_probability(r, c) >= AUTO_IGNITE_PROBABILITY:
+                    if self.fire_probability(r, c) >= self.settings["auto_ignite_percent"] / 100.0:
                         self.grid[r][c] = BURNING
                         self._reset_to_safe_state(r, c)
                         self._spawn_particle_burst(
@@ -535,18 +587,18 @@ class Game:
                     self._reset_to_safe_state(r, c)
 
         self.turn += 1
-        self.ap = AP_PER_TURN
+        self.ap = self.settings["ap_per_turn"]
         self._count_burned()
         self._check_lose()
 
-        if self.turn > MAX_TURNS and not self.game_over:
-            if self.burned_count <= BURN_THRESHOLD:
+        if self.turn > self.settings["max_turns"] and not self.game_over:
+            if self.burned_count <= self.settings["burn_threshold"]:
                 self._finish_game(True, "You saved the community! Wildfire contained.")
             else:
                 self._finish_game(False, "Too many tiles burned. The region is devastated.")
 
     def _check_lose(self):
-        if self.burned_count > BURN_THRESHOLD and not self.game_over:
+        if self.burned_count > self.settings["burn_threshold"] and not self.game_over:
             self._finish_game(False, "Fire overwhelmed the region! You lose.")
 
 
@@ -928,9 +980,9 @@ def draw_panel(surface, game, font, font_sm, font_fact, ticks):
     stats_rect = pygame.Rect(x - 8, y, PANEL_W - 40, 106)
     pygame.draw.rect(surface, COL_CARD, stats_rect, border_radius=10)
     pygame.draw.rect(surface, (*COL_GLOW, 80), stats_rect, 1, border_radius=10)
-    text(f"Turn: {game.turn} / {MAX_TURNS}", COL_TEXT, font_sm, yy=y + 10)
-    text(f"AP: {game.ap} / {AP_PER_TURN}", COL_TEXT, font_sm)
-    text(f"Burned: {game.burned_count} / {BURN_THRESHOLD}", COL_TEXT, font_sm)
+    text(f"Turn: {game.turn} / {game.settings['max_turns']}", COL_TEXT, font_sm, yy=y + 10)
+    text(f"AP: {game.ap} / {game.settings['ap_per_turn']}", COL_TEXT, font_sm)
+    text(f"Burned: {game.burned_count} / {game.settings['burn_threshold']}", COL_TEXT, font_sm)
     text(f"Wind: {wind_label(game.wind_dir)}", COL_MUTED, font_sm)
     draw_wind_compass(surface, pygame.Rect(stats_rect.right - 70, stats_rect.y + 12, 54, 74), game.wind_dir, font_sm)
     y = stats_rect.bottom + 18
@@ -1057,7 +1109,7 @@ def draw_info_overlay(surface, game, font, font_sm, font_fact):
         (
             "Goal",
             [
-                f"Survive {MAX_TURNS} turns while keeping burned and burning tiles at {BURN_THRESHOLD} or fewer.",
+                f"Survive {game.settings['max_turns']} turns while keeping burned and burning tiles at {game.settings['burn_threshold']} or fewer.",
                 "Scan when risk is concentrated, build firebreaks ahead of wind, and save crews for fires that can spread into open forest.",
             ],
         ),
@@ -1137,6 +1189,76 @@ def draw_social_good_overlay(surface, font, font_sm, font_fact):
     surface.blit(close, (x, card.bottom - close.get_height() - 18))
 
 
+def draw_settings_overlay(surface, game, font, font_sm, font_fact):
+    shade = pygame.Surface((SCREEN_W, SCREEN_H), pygame.SRCALPHA)
+    shade.fill(COL_MODAL)
+    surface.blit(shade, (0, 0))
+
+    card = pygame.Rect(284, 70, 532, 700)
+    pygame.draw.rect(surface, COL_MODAL_CARD, card, border_radius=10)
+    pygame.draw.rect(surface, (*COL_GLOW, 120), card, 2, border_radius=10)
+
+    x = card.x + 30
+    y = card.y + 24
+    title = font.render("Difficulty Settings", True, COL_HIGHLIGHT)
+    surface.blit(title, (x, y))
+    preset_text = font_sm.render(f"Profile: {game.difficulty_name}", True, COL_FACT_TITLE)
+    surface.blit(preset_text, (card.right - preset_text.get_width() - 30, y + 4))
+    y += 48
+
+    for name in DIFFICULTY_PRESETS:
+        rect = pygame.Rect(x, y, 144, 42)
+        game.ui_buttons[f"preset:{name}"] = rect
+        active = game.difficulty_name == name
+        pygame.draw.rect(surface, COL_BTN_ACTIVE if active else COL_BTN, rect, border_radius=6)
+        pygame.draw.rect(surface, COL_HIGHLIGHT if active else COL_GRID_LINE, rect, 1, border_radius=6)
+        label = font_sm.render(name, True, COL_HIGHLIGHT)
+        surface.blit(label, (rect.centerx - label.get_width() // 2, rect.centery - label.get_height() // 2))
+        x += 154
+    x = card.x + 30
+    y += 65
+
+    rule_hints = {
+        "initial_fires": "More is harder",
+        "max_turns": "More is harder",
+        "ap_per_turn": "More is easier",
+        "entangled_pairs": "More uncertainty",
+        "burn_threshold": "More is easier",
+        "auto_ignite_percent": "Lower is harder",
+    }
+    for key, label, _minimum, _maximum, _step in DIFFICULTY_SETTINGS:
+        rendered = font_fact.render(label, True, COL_TEXT)
+        surface.blit(rendered, (x, y + 10))
+        hint = font_sm.render(rule_hints[key], True, COL_MUTED)
+        surface.blit(hint, (x + 168, y + 13))
+
+        minus = pygame.Rect(card.right - 156, y + 4, 38, 38)
+        plus = pygame.Rect(card.right - 48, y + 4, 38, 38)
+        game.ui_buttons[f"setting:-:{key}"] = minus
+        game.ui_buttons[f"setting:+:{key}"] = plus
+        for rect, glyph in ((minus, "-"), (plus, "+")):
+            pygame.draw.rect(surface, COL_BTN, rect, border_radius=6)
+            pygame.draw.rect(surface, COL_GRID_LINE, rect, 1, border_radius=6)
+            txt = font.render(glyph, True, COL_HIGHLIGHT)
+            surface.blit(txt, (rect.centerx - txt.get_width() // 2, rect.centery - txt.get_height() // 2))
+
+        value = f"{game.settings[key]}%" if key == "auto_ignite_percent" else str(game.settings[key])
+        value_txt = font.render(value, True, COL_FACT_TITLE)
+        surface.blit(value_txt, (card.right - 96 - value_txt.get_width() // 2, y + 11))
+        y += 58
+
+    footer = (
+        "Settings apply when starting or restarting a game. "
+        "Entanglement controls linked tile pairs."
+    )
+    fy = card.bottom - 66
+    for line in wrap_text_lines(font_sm, footer, card.width - 60):
+        surface.blit(font_sm.render(line, True, COL_MUTED), (card.x + 30, fy))
+        fy += 20
+    close = font_sm.render("Esc: close", True, COL_MUTED)
+    surface.blit(close, (card.right - close.get_width() - 30, card.bottom - 30))
+
+
 def draw_main_menu(surface, game, font_title, font, font_sm, font_fact, ticks):
     draw_animated_backdrop(surface, ticks)
     game.ui_buttons.clear()
@@ -1157,7 +1279,7 @@ def draw_main_menu(surface, game, font_title, font, font_sm, font_fact, ticks):
     intro_lines = [
         "Forest fires can move fast when wind, dry fuel, and heat line up. In this game, each turn is a short emergency response window: build firebreaks, scan uncertain areas, and send crews before small ignitions become a regional disaster.",
         "The quantum-inspired fire model turns hidden risk into strategy. Unmeasured forest tiles can hold a fire probability, scans collapse that uncertainty into safe forest or active flame, and firebreaks reduce nearby fire amplitude.",
-        f"Goal: survive {MAX_TURNS} turns while keeping burned and burning tiles at {BURN_THRESHOLD} or fewer.",
+        f"Goal: survive {game.settings['max_turns']} turns while keeping burned and burning tiles at {game.settings['burn_threshold']} or fewer.",
     ]
     for paragraph in intro_lines:
         for line in wrap_text_lines(font_fact, paragraph, max_w):
@@ -1184,18 +1306,21 @@ def draw_main_menu(surface, game, font_title, font, font_sm, font_fact, ticks):
         fy += line_h
 
     button_y = SCREEN_H - 170
-    start_rect = pygame.Rect(left, button_y, 210, 54)
-    info_rect = pygame.Rect(left + 232, button_y, 160, 54)
+    start_rect = pygame.Rect(left, button_y, 176, 54)
+    info_rect = pygame.Rect(left + 188, button_y, 168, 54)
+    settings_rect = pygame.Rect(left + 368, button_y, 172, 54)
     social_rect = pygame.Rect(left, button_y + 66, 306, 46)
     quit_rect = pygame.Rect(left + 328, button_y + 66, 120, 46)
     game.ui_buttons["start_game"] = start_rect
     game.ui_buttons["menu_info"] = info_rect
+    game.ui_buttons["menu_settings"] = settings_rect
     game.ui_buttons["social_good"] = social_rect
     game.ui_buttons["quit_game"] = quit_rect
 
     for rect, label, active in (
         (start_rect, "Start Game", True),
         (info_rect, "How to Play", False),
+        (settings_rect, "Settings", False),
         (social_rect, "UNESCO Social Good", False),
         (quit_rect, "Quit", False),
     ):
@@ -1211,7 +1336,7 @@ def draw_main_menu(surface, game, font_title, font, font_sm, font_fact, ticks):
             ),
         )
 
-    hint = font_sm.render("Enter: start   H / ?: info   Esc: quit", True, COL_MUTED)
+    hint = font_sm.render("Enter: start   H / ?: info   Settings: difficulty   Esc: quit", True, COL_MUTED)
     surface.blit(hint, (left, button_y + 126))
 
     preview = pygame.Rect(SCREEN_W - 412, 88, 316, 560)
@@ -1274,8 +1399,8 @@ def draw_game_over_overlay(surface, game, font_title, font, font_sm, font_fact):
     surface.blit(outcome_txt, (card.centerx - outcome_txt.get_width() // 2, card.y + 76))
 
     stats = [
-        ("Turns", f"{min(game.turn - 1, MAX_TURNS)} / {MAX_TURNS}"),
-        ("Burned / Limit", f"{game.burned_count} / {BURN_THRESHOLD}"),
+        ("Turns", f"{min(game.turn - 1, game.settings['max_turns'])} / {game.settings['max_turns']}"),
+        ("Burned / Limit", f"{game.burned_count} / {game.settings['burn_threshold']}"),
         ("Firebreaks", str(game.stats["firebreaks"])),
         ("Scans", str(game.stats["scans"])),
         ("Crews", str(game.stats["crews"])),
@@ -1355,15 +1480,19 @@ def main():
 
             elif event.type == pygame.KEYDOWN:
                 if app_screen == SCREEN_MENU:
-                    if (game.show_info or game.show_social_good) and event.key == pygame.K_ESCAPE:
+                    if (game.show_info or game.show_social_good or game.show_settings) and event.key == pygame.K_ESCAPE:
                         game.show_info = False
                         game.show_social_good = False
+                        game.show_settings = False
+                    elif game.show_settings:
+                        continue
                     elif event.key in (pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_SPACE):
                         game.reset()
                         app_screen = SCREEN_GAME
                     elif event.key in (pygame.K_h, pygame.K_i) or event.unicode == "?":
                         game.show_info = not game.show_info
                         game.show_social_good = False
+                        game.show_settings = False
                     elif event.key == pygame.K_ESCAPE:
                         running = False
                     continue
@@ -1393,6 +1522,21 @@ def main():
 
             elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 mx, my = event.pos
+                if game.show_settings:
+                    settings_card = pygame.Rect(284, 70, 532, 700)
+                    if not settings_card.collidepoint(mx, my):
+                        game.show_settings = False
+                    else:
+                        for name, rect in game.ui_buttons.items():
+                            if not rect.collidepoint(mx, my):
+                                continue
+                            if name.startswith("preset:"):
+                                game.apply_difficulty_preset(name.split(":", 1)[1])
+                            elif name.startswith("setting:"):
+                                _kind, direction, key = name.split(":")
+                                game.adjust_setting(key, 1 if direction == "+" else -1)
+                            break
+                    continue
                 if game.show_info or game.show_social_good:
                     info_card = pygame.Rect(170, 82, SCREEN_W - 340, SCREEN_H - 164)
                     if not info_card.collidepoint(mx, my):
@@ -1411,9 +1555,15 @@ def main():
                             elif name == "menu_info":
                                 game.show_info = True
                                 game.show_social_good = False
+                                game.show_settings = False
+                            elif name == "menu_settings":
+                                game.show_settings = True
+                                game.show_info = False
+                                game.show_social_good = False
                             elif name == "social_good":
                                 game.show_social_good = True
                                 game.show_info = False
+                                game.show_settings = False
                             elif name == "quit_game":
                                 running = False
                             break
@@ -1470,6 +1620,8 @@ def main():
             draw_info_overlay(screen, game, font, font_sm, font_fact)
         if game.show_social_good:
             draw_social_good_overlay(screen, font, font_sm, font_fact)
+        if game.show_settings:
+            draw_settings_overlay(screen, game, font, font_sm, font_fact)
         pygame.display.flip()
         clock.tick(FPS)
 
